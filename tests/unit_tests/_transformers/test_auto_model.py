@@ -521,6 +521,49 @@ class TestFilterKwargsForInit:
         assert result == kwargs
 
 
+class TestInitModelConfigKwargPopped:
+    """config must be removed from kwargs before positional dispatch."""
+
+    def test_config_in_kwargs_is_popped_for_custom_model(self):
+        """When kwargs contain 'config', it should be removed to avoid
+        'got multiple values for argument config' on models with **kwargs."""
+        from nemo_automodel._transformers.model_init import _init_model
+
+        hf_config = MagicMock()
+        hf_config.architectures = ["FakeArch"]
+
+        class FakeModel(torch.nn.Module):
+            def __init__(self, config, **kwargs):
+                super().__init__()
+                self.received_config = config
+                self.extra_kwargs = kwargs
+
+        with (
+            patch(
+                "nemo_automodel._transformers.model_init._resolve_custom_model_cls_for_config",
+                return_value=FakeModel,
+            ),
+            patch("nemo_automodel._transformers.model_init.get_architectures", return_value=["FakeArch"]),
+            patch("nemo_automodel._transformers.model_init._download_model_weights"),
+            patch("nemo_automodel._transformers.model_init._get_init_param_names", return_value={"config"}),
+            patch("nemo_automodel._transformers.model_init._consume_config_overrides"),
+            patch("nemo_automodel._transformers.model_init._filter_kwargs_for_init", side_effect=lambda cls, kw: kw),
+        ):
+            is_custom, model = _init_model(
+                NeMoAutoModelForCausalLM,
+                "fake-path",
+                "flash_attention_2",
+                "auto",
+                None,
+                False,
+                config=hf_config,  # injected by _maybe_dequantize_fp8_for_peft
+            )
+            assert is_custom is True
+            assert model.received_config is hf_config
+            # config must NOT leak into extra kwargs
+            assert "config" not in model.extra_kwargs
+
+
 # =============================================================================
 # Tests for NEED_SETUP_CACHE_CLASSES_MAPPING backward compatibility shim
 # =============================================================================

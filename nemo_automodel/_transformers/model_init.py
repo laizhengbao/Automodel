@@ -296,6 +296,10 @@ def _init_model(
             _download_model_weights(hf_config, pretrained_model_name_or_path)
         logger.info(f"Using custom model implementation for {architectures[0]}")
         kwargs.pop("trust_remote_code", None)
+        # config is always passed positionally; drop it from kwargs to avoid
+        # "got multiple values for argument 'config'" when the caller (e.g.
+        # _maybe_dequantize_fp8_for_peft) injects it into kwargs.
+        kwargs.pop("config", None)
         # Treat config-related kwargs as config overrides (HF behavior) and
         # avoid forwarding them into model __init__.
         init_param_names = _get_init_param_names(model_cls)
