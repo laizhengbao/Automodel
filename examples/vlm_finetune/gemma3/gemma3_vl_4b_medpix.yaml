@@ -35,9 +35,9 @@ rng:
 model:
   _target_: nemo_automodel.NeMoAutoModelForImageTextToText.from_pretrained
   pretrained_model_name_or_path: google/gemma-3-4b-it
-  torch_dtype: torch.bfloat16
+  torch_dtype: torch.float16
   use_liger_kernel: false
-  attn_implementation: eager
+  attn_implementation: sdpa
 
 checkpoint:
   enabled: true
@@ -51,6 +51,10 @@ distributed:
   tp_size: 1
   cp_size: 1
   sequence_parallel: false
+  offload_policy:
+    __target__: torch.distrubted.fsdp.CPUOffloadPolicy
+    offload_params: true
+  activation_checkpointing: true
 
 loss_fn:
   _target_: nemo_automodel.components.loss.masked_ce.MaskedCrossEntropy
@@ -79,6 +83,7 @@ validation_dataloader:
 optimizer:
   _target_: torch.optim.AdamW
   lr: 1e-5
+  eps: 1e-4
   weight_decay: 0.01
   betas: [0.9, 0.95]
 
