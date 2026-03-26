@@ -559,6 +559,8 @@ class FinetuneRecipeForVLM(BaseRecipe):
         self.dist_env = build_distributed(self.cfg.get("dist_env", {}))
         setup_logging()
 
+        self.scaler = torch.amp.GradScaler('cuda', enabled=True)
+
         apply_cache_compatibility_patches()
 
         # Set up the stateful random number generator
@@ -745,7 +747,7 @@ class FinetuneRecipeForVLM(BaseRecipe):
             labels = batch.pop("labels")
 
             train_ctx, batch = make_cp_batch_and_ctx(self.device_mesh, batch, labels)
-            with train_ctx(), get_sync_ctx(self.model, i == num_batches - 1):
+            with train_ctx(), get_sync_ctx(self.model, i == num_batches - 1), torch.amp.autocast('cuda', dtype=torch.float16):
                 if isinstance(self.loss_fn, FusedLinearCrossEntropy):
                     # use num_logits_to_keep to avoid full logits matrix in memory
                     out = self.model(logits_to_keep=1, **batch)
@@ -765,7 +767,9 @@ class FinetuneRecipeForVLM(BaseRecipe):
                     num_label_tokens=num_label_tokens,
                 )
                 loss_buffer.append(local_loss.clone().detach())
-                local_loss.backward()
+                self.scaler.scale(local_loss).backward()
+
+        self.scaler.unscale_(self.optimizer)
 
         grad_norm = scale_grads_and_clip_grad_norm(
             max_grad_norm,
@@ -785,7 +789,8 @@ class FinetuneRecipeForVLM(BaseRecipe):
         # self.model.finish_grad_sync()
 
         self.checkpointer.maybe_wait_for_staging()
-        self.optimizer.step()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
         self.optimizer.zero_grad(set_to_none=True)
 
         if hasattr(self.model, "update_moe_gate_bias"):
