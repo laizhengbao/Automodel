@@ -60,3 +60,50 @@ def make_4osft_dataset(
 		return { "conversation": conversation }
 
 	return [ format( example ) for example in dataset ]
+
+def make_textvqa (
+		path_or_dataset="lmms-lab/textvqa",
+		split="train",
+		**kwargs
+):
+
+	dataset = load_dataset( path_or_dataset, split=split )
+
+	def format( example ):
+
+		anss = example.get( "answers", [] )
+
+		if isinstance( anss, list ) and len( anss ):
+			ans = random.choice( anss )
+
+		else:
+			ans = example.get( "answer", "" )
+
+		return {
+				"conversation": [
+					{
+						"role": "user",
+						"content": [
+							{
+								"type": "image",
+								"image": example["image"]
+							},
+							{
+								"type": "text",
+								"text": example["question"]
+							},
+						],
+					},
+					{
+						"role": "assistant",
+						"content": [
+							{
+								"type": "text",
+								"text": ans
+							}
+						]
+					}
+				]
+			}
+
+		return [ format( example ) for example in dataset ]
