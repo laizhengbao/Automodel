@@ -106,4 +106,4 @@ def make_textvqa_dataset (
 				]
 			}
 
-		return [ format( example ) for example in dataset ]
+	return [ format( example ) for example in dataset ]
