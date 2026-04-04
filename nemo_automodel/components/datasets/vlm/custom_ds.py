@@ -61,7 +61,7 @@ def make_4osft_dataset(
 
 	return [ format( example ) for example in dataset ]
 
-def make_textvqa (
+def make_textvqa_dataset (
 		path_or_dataset="lmms-lab/textvqa",
 		split="train",
 		**kwargs
