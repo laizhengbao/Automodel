@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import torch
 import torch.nn as nn
 import wandb
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 from torchao.float8 import precompute_float8_dynamic_scale_for_fsdp
 from transformers import AutoProcessor
 from transformers.modeling_utils import no_init_weights
@@ -77,7 +77,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ---------------------------
-#  Stateless helper functions
+#	Stateless helper functions
 # ---------------------------
 
 
@@ -129,7 +129,7 @@ def build_model_and_optimizer(
 	loss_fn=None,
 	parallelize_fn=None,
 	load_base_model=True,
-) -> tuple[nn.Module, list[str], "Optimizer"]:  # noqa: F821
+) -> tuple[nn.Module, list[str], "Optimizer"]:	# noqa: F821
 	"""
 	Build and initialize a model for VLM.
 
@@ -334,10 +334,26 @@ def build_dataloader(
 		with FirstRankPerNode():
 			ds = cfg_ds.instantiate(path_or_dataset=cfg_ds.path_or_dataset)
 
-		sampler = torch.utils.data.distributed.DistributedSampler(
-			ds,
-			**dist_sampler_kwargs,
-		)
+		sampler = None
+
+		if isinstance( ds, IterableDataset ):
+			
+			if device_mesh is not None:
+
+				world_size = device_mesh["dp"].size()
+
+				rank = device_mesh["dp"].get_local_rank()
+
+				if hasattr( ds, "shard" ):
+					ds = ds.shard( num_shards=world_size, index=rank )
+				else:
+					logging.warning("Dataset is Iterable but doesn't support .shard(). Multi-node training might see redundant data.")
+
+		else:
+			sampler = torch.utils.data.distributed.DistributedSampler(
+				ds,
+				**dist_sampler_kwargs,
+			)
 		collate_cfg = cfg_dl.get("collate_fn", None)
 		if collate_cfg:
 			collate_fn = lambda examples: collate_cfg.instantiate(examples=examples, processor=processor)
@@ -349,7 +365,8 @@ def build_dataloader(
 			collate_fn = lambda examples: COLLATE_FNS[processor_type](examples, processor)
 
 		return cfg_dl.instantiate(
-			dataset=ds, sampler=sampler, collate_fn=collate_fn, batch_size=local_batch_size
+			dataset=ds, sampler=sampler, collate_fn=collate_fn, batch_size=local_batch_size,
+			shuffle=( cfg_dl.get( "shuffle", True ) if sampler is None and not isinstance( ds, IterableDataset ) else False )
 		), processor
 
 		# Ensure spawn start method to avoid fork-safety issues with CUDA/JIT
@@ -366,7 +383,7 @@ def build_dataloader(
 		), processor
 
 
-def build_distributed(cfg_dist: Dict[str, Any]) -> "DistInfo":  # noqa: F821
+def build_distributed(cfg_dist: Dict[str, Any]) -> "DistInfo":	# noqa: F821
 	"""Build and initialize distributed training resources.
 
 	Args:
@@ -406,7 +423,7 @@ def build_step_scheduler(cfg, dataloader, dp_group_size, local_batch_size):
 	return StepScheduler(**default_kwargs)
 
 
-def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamScheduler | None:  # noqa: F821
+def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamScheduler | None:	# noqa: F821
 	"""Build the learning rate scheduler.
 
 	Args:
@@ -422,7 +439,13 @@ def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamSchedule
 
 	# Calculate total steps for the training run
 	total_epochs = step_scheduler.num_epochs
-	epoch_len = len(step_scheduler.dataloader)
+
+	try:
+		epoch_len = len(step_scheduler.dataloader)
+	except ( TypeError, NotImplementedError ):
+		epoch_len = 0
+		logging.warning("Cannot determine dataset length. Ensure max_steps is set in step_scheduler.")
+
 	grad_acc_steps = step_scheduler.grad_acc_steps
 
 	# Total optimizer steps (accounting for gradient accumulation)
@@ -436,10 +459,10 @@ def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamSchedule
 	# Set defaults for scheduler parameters
 	default_kwargs = dict(
 		optimizer=optimizer,
-		init_lr=base_lr * 0.1,  # Start warmup at 10% of base LR
+		init_lr=base_lr * 0.1,	# Start warmup at 10% of base LR
 		max_lr=base_lr,
-		min_lr=base_lr * 0.01,  # End at 1% of base LR
-		lr_warmup_steps=min(1000, total_steps // 10),  # 10% warmup or max 1000 steps
+		min_lr=base_lr * 0.01,	# End at 1% of base LR
+		lr_warmup_steps=min(1000, total_steps // 10),	# 10% warmup or max 1000 steps
 		lr_decay_steps=total_steps,
 		lr_decay_style="cosine",
 		start_wd=optimizer.param_groups[0].get("weight_decay", 0.0),
@@ -531,7 +554,7 @@ def calculate_loss(loss_fn, **kwargs) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
-#  Trainer class – orchestration only
+#	Trainer class – orchestration only
 # ---------------------------------------------------------------------------
 
 

@@ -15,10 +15,11 @@ def make_4osft_dataset(
 		path_or_dataset="Share4oReasoning/sft_data",
 		split="train",
 		base_dir=None,
+		streaming=False,
 		**kwargs
 	):
 
-	dataset = load_dataset( path_or_dataset, split=split )
+	dataset = load_dataset( path_or_dataset, split=split, streaming=streaming )
 
 	if not isinstance( base_dir, str ):
 		base_dir = os.path.join(
@@ -59,11 +60,16 @@ def make_4osft_dataset(
 
 		return { "conversation": conversation }
 
+	if streaming:
+
+		return dataset.map( format )
+
 	return [ format( example ) for example in dataset ]
 
 def make_textvqa_dataset (
 		path_or_dataset="lmms-lab/textvqa",
 		split="train",
+		streaming=False,
 		**kwargs
 ):
 
@@ -105,5 +111,9 @@ def make_textvqa_dataset (
 					}
 				]
 			}
+
+	if streaming:
+
+		return dataset.map( format )
 
 	return [ format( example ) for example in dataset ]
