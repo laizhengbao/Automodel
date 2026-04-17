@@ -93,3 +93,62 @@ def custom_collate_fn(examples: list, processor, start_of_response_token=None) -
 	]
 	batch["loss_mask"] = torch.tensor(loss_masks, dtype=torch.float, device=batch["input_ids"].device)
 	return batch
+
+
+def gemma3_collate_fn(examples: list, processor, start_of_response_token="<start_of_turn>model\n") -> dict[str, torch.Tensor]:
+	skipped_tokens = extract_skipped_token_ids(processor)
+
+	txts = []
+	all_images = []
+
+	for example in examples:
+		conv = example["conversation"]
+		txt = processor.apply_chat_template(conv, tokenize=False, add_generation_prompt=False)
+		txts.append(txt)
+
+		example_images = []
+		for turn in conv:
+			cnt = turn.get("content", [])
+			if isinstance(cnt, list):
+				for item in cnt:
+					if isinstance(item, dict) and item.get("type") == "image":
+						p = item.get("image") or item.get("url")
+						if p:
+							try:
+								if isinstance(p, str):
+									img = Image.open(p).convert("RGB")
+								else:
+									img = p
+								example_images.append(img)
+							except Exception as e:
+								print(f"無法讀取圖像 '{p}': {e}")
+		all_images.append(example_images if example_images else None)
+
+	batch = processor(
+		text=txts,
+		images=all_images if any(all_images) else None,
+		padding=True,
+		return_tensors="pt",
+	)
+
+	if "pixel_values" in batch:
+		batch["pixel_values"] = batch["pixel_values"].to(torch.bfloat16)
+
+	if "position_ids" not in batch:
+		batch_size, seq_len = batch["input_ids"].shape
+		batch["position_ids"] = (
+			torch.arange(seq_len, device=batch["input_ids"].device).unsqueeze(0).expand(batch_size, -1)
+		)
+
+	labels = batch["input_ids"].clone()[:, 1:]
+	labels = torch.cat([labels, -100 * torch.ones_like(labels[:, :1])], dim=1)
+	labels[torch.isin(labels, skipped_tokens)] = -100
+	batch["labels"] = labels
+
+	loss_masks = [
+		create_loss_mask_with_start_of_response_token(input_ids, processor, start_of_response_token)
+		for input_ids in batch["input_ids"]
+	]
+	batch["loss_mask"] = torch.tensor(loss_masks, dtype=torch.float, device=batch["input_ids"].device)
+
+	return batch

@@ -359,10 +359,15 @@ def build_dataloader(
 			collate_fn = lambda examples: collate_cfg.instantiate(examples=examples, processor=processor)
 		else:
 			processor_type = type(processor).__name__
-			if processor_type not in COLLATE_FNS:
-				processor_type = "default"
-				logging.warning(f"You are using {processor_type} with default collate function.")
-			collate_fn = lambda examples: COLLATE_FNS[processor_type](examples, processor)
+
+			if processor_type == "Gemma3Processor":
+				from nemo_automodel.components.datasets.vlm.custom_collate import gemma3_collate_fn
+				collate_fn = lambda examples: gemma3_collate_fn(examples, processor)
+			else:
+				if processor_type not in COLLATE_FNS:
+					processor_type = "default"
+					logging.warning(f"You are using {processor_type} with default collate function.")
+				collate_fn = lambda examples: COLLATE_FNS[processor_type](examples, processor)
 
 		return cfg_dl.instantiate(
 			dataset=ds, sampler=sampler, collate_fn=collate_fn, batch_size=local_batch_size,
