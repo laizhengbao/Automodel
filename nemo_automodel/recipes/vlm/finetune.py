@@ -492,6 +492,7 @@ def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamSchedule
 
 def build_wandb(cfg) -> wandb.Run:
 	"""Instantiates wandb and returns the instance. If no name is given, it will use the model name.
+	Includes retry logic to handle transient initialization timeouts.
 
 	Args:
 		cfg: Configuration for wandb.
@@ -503,12 +504,23 @@ def build_wandb(cfg) -> wandb.Run:
 	kwargs = cfg.wandb.to_dict()
 	if kwargs.get("name", "") == "":
 		kwargs["name"] = "_".join(_get_model_name(cfg.model).split("/")[-2:])
-	run = wandb.init(
-		**kwargs,
-		config=cfg.to_dict(),
-		settings=Settings(silent=True, init_timeout=120),
-	)
-	return run
+	
+	max_retries = 3
+	for attempt in range(max_retries):
+		try:
+			run = wandb.init(
+				**kwargs,
+				config=cfg.to_dict(),
+				settings=Settings(silent=True, init_timeout=120),
+			)
+			return run
+		except Exception as e:
+			if attempt < max_retries - 1:
+				logging.warning(f"WandB init failed (attempt {attempt+1}/{max_retries}), retrying in 5 seconds... Error: {e}")
+				time.sleep(5)
+			else:
+				logging.error("WandB init failed after multiple attempts.")
+				raise e
 
 
 def calculate_loss(loss_fn, **kwargs) -> torch.Tensor:
