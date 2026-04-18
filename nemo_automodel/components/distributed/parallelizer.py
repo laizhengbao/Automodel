@@ -956,6 +956,11 @@ def fsdp2_strategy_parallelize(
     # Get the appropriate parallelization strategy for this model
     strategy = get_parallelization_strategy(model)
 
+    # Ensure model is on CPU if CPU offloading is requested
+    if offload_policy is not None:
+        logger.info("Moving model to CPU for CPU offloading.")
+        model.to("cpu")
+
     # Delegate to the strategy
     return strategy.parallelize(
         model=model,
