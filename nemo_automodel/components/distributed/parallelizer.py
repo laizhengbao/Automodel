@@ -158,16 +158,17 @@ class DefaultParallelizationStrategy(ParallelizationStrategy):
         # This must happen AFTER Tensor Parallelism because TP moves weights to GPU.
         if offload_policy is not None:
             logger.info("Moving model parameters to CPU for CPU offloading after TP.")
-            # Use to_empty(device='cpu') if parameter has no data (meta), otherwise use .to('cpu')
-            for name, param in model.named_parameters():
-                if param.device.type != "cpu":
-                    # Force move to CPU, if it's a meta tensor, use to_empty
-                    if param.is_meta:
-                        param.to_empty(device="cpu")
-                    else:
-                        param.data = param.data.to("cpu")
             
-            # Also ensure the module itself is moved to cpu
+            # For parameters that are already on GPU, move them to CPU
+            for param in model.parameters():
+                if param.device.type == "cuda":
+                    param.data = param.data.to("cpu")
+            
+            # For meta tensors (that have no data), use to_empty to initialize on CPU
+            # Note: module.to_empty() is the correct way to handle meta device tensors
+            model.to_empty(device="cpu")
+            
+            # Move the entire module to cpu
             model.to("cpu")
 
         # Apply activation checkpointing to transformer layers if requested
