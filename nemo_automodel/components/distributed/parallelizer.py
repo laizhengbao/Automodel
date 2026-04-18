@@ -154,6 +154,22 @@ class DefaultParallelizationStrategy(ParallelizationStrategy):
             if model_parallel_plan:
                 parallelize_module(model, tp_mesh, model_parallel_plan)
 
+        # Ensure model is on CPU if CPU offloading is requested.
+        # This must happen AFTER Tensor Parallelism because TP moves weights to GPU.
+        if offload_policy is not None:
+            logger.info("Moving model parameters to CPU for CPU offloading after TP.")
+            # Use to_empty(device='cpu') if parameter has no data (meta), otherwise use .to('cpu')
+            for name, param in model.named_parameters():
+                if param.device.type != "cpu":
+                    # Force move to CPU, if it's a meta tensor, use to_empty
+                    if param.is_meta:
+                        param.to_empty(device="cpu")
+                    else:
+                        param.data = param.data.to("cpu")
+            
+            # Also ensure the module itself is moved to cpu
+            model.to("cpu")
+
         # Apply activation checkpointing to transformer layers if requested
         if activation_checkpointing:
             # Disable KV caching during training to ensure deterministic
