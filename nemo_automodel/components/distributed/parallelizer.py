@@ -154,7 +154,7 @@ class DefaultParallelizationStrategy(ParallelizationStrategy):
             if model_parallel_plan:
                 parallelize_module(model, tp_mesh, model_parallel_plan)
 
-        # Apply activation checkpointing to linear layers if requested
+        # Apply activation checkpointing to transformer layers if requested
         if activation_checkpointing:
             # Disable KV caching during training to ensure deterministic
             # shapes between forward and checkpoint recomputation.
@@ -164,21 +164,8 @@ class DefaultParallelizationStrategy(ParallelizationStrategy):
                 except Exception:
                     pass
 
-            for i, layer in enumerate(layers):
-                if hasattr(layer, "mlp"):
-                    layers[i].mlp = checkpoint_wrapper(layer.mlp)
-                if hasattr(layer, "self_attn"):
-                    layers[i].self_attn = checkpoint_wrapper(layers[i].self_attn)  # type: ignore
-
-                if hasattr(layer, "input_layernorm"):
-                    layers[i].input_layernorm = checkpoint_wrapper(
-                        layers[i].input_layernorm  # type: ignore
-                    )
-
-                if hasattr(layer, "post_attention_layernorm"):
-                    layers[i].post_attention_layernorm = checkpoint_wrapper(
-                        layers[i].post_attention_layernorm  # type: ignore
-                    )
+            for i in range(len(layers)):
+                layers[i] = checkpoint_wrapper(layers[i])
 
         # Set up mixed precision policy
         if not mp_policy:
