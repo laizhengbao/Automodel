@@ -492,7 +492,7 @@ def build_lr_scheduler(cfg, optimizer, step_scheduler) -> OptimizerParamSchedule
 
 def build_wandb(cfg) -> wandb.Run:
 	"""Instantiates wandb and returns the instance. If no name is given, it will use the model name.
-	Includes retry logic to handle transient initialization timeouts.
+	Includes retry logic and diagnostic logging for distributed ranks.
 
 	Args:
 		cfg: Configuration for wandb.
@@ -505,21 +505,28 @@ def build_wandb(cfg) -> wandb.Run:
 	if kwargs.get("name", "") == "":
 		kwargs["name"] = "_".join(_get_model_name(cfg.model).split("/")[-2:])
 	
+	rank = int(os.environ.get("RANK", 0))
+	local_rank = int(os.environ.get("LOCAL_RANK", 0))
+	gpu_id = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+	
+	logging.info(f"WandB init attempt starting on Rank {rank} (Local Rank {local_rank}, GPU {gpu_id})")
+	
 	max_retries = 3
 	for attempt in range(max_retries):
 		try:
 			run = wandb.init(
 				**kwargs,
 				config=cfg.to_dict(),
-				settings=Settings(silent=True, init_timeout=120),
+				settings=Settings(silent=False, init_timeout=180), # 再次拉高至 180s
 			)
+			logging.info(f"WandB init success on Rank {rank}")
 			return run
 		except Exception as e:
 			if attempt < max_retries - 1:
-				logging.warning(f"WandB init failed (attempt {attempt+1}/{max_retries}), retrying in 5 seconds... Error: {e}")
-				time.sleep(5)
+				logging.warning(f"WandB init failed on Rank {rank} (attempt {attempt+1}/{max_retries}), retrying in 10 seconds... Error: {e}")
+				time.sleep(10)
 			else:
-				logging.error("WandB init failed after multiple attempts.")
+				logging.error(f"WandB init failed on Rank {rank} after multiple attempts.")
 				raise e
 
 
