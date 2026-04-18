@@ -506,7 +506,7 @@ def build_wandb(cfg) -> wandb.Run:
 	run = wandb.init(
 		**kwargs,
 		config=cfg.to_dict(),
-		settings=Settings(silent=True),
+		settings=Settings(silent=True, init_timeout=120),
 	)
 	return run
 
