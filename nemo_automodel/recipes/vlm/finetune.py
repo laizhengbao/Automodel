@@ -883,10 +883,13 @@ class FinetuneRecipeForVLM(BaseRecipe):
 	@torch.no_grad()
 	def _run_validation_epoch(self, val_dataloader):
 		"""Run one pass over `self.val_dataloader`."""
-		# Instead of manual .to("cpu"), ensure we are in a state compatible with FSDP offloading
-		self.model.eval()
+		# Trigger FSDP CPU offloading synchronization if enabled
+		if hasattr(self.model, "offload_policy") and self.model.offload_policy is not None:
+			self.model.cpu() 
 
 		with ScopedRNG(seed=1, ranked=True):
+			self.model.eval()
+
 			total_loss = 0.0
 			total_tokens = 0
 			total_num_label_tokens = 0
