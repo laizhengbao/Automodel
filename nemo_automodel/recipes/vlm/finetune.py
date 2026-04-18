@@ -893,6 +893,11 @@ class FinetuneRecipeForVLM(BaseRecipe):
 		"""Run one pass over `self.val_dataloader`."""
 		self.model.eval()
 
+		# Temporarily disable offload_policy during validation to bypass FSDP CPU offload check
+		original_offload_policy = getattr(self.model, "offload_policy", None)
+		if original_offload_policy is not None:
+			self.model.offload_policy = None
+
 		with ScopedRNG(seed=1, ranked=True):
 			total_loss = 0.0
 			total_tokens = 0
@@ -928,10 +933,13 @@ class FinetuneRecipeForVLM(BaseRecipe):
 						else None,
 						num_label_tokens=num_label_tokens,
 					)
+					total_loss += local_loss.item() * num_label_tokens
 					total_num_label_tokens += num_label_tokens
-
-				total_loss += local_loss.item() * num_label_tokens
-				total_tokens += num_label_tokens
+					total_tokens += (labels != -100).sum().item()
+		
+		# Restore offload_policy
+		if original_offload_policy is not None:
+			self.model.offload_policy = original_offload_policy
 
 		# Aggregate across ranks if distributed is initialized
 		total_loss = self._dp_allreduce(torch.FloatTensor([total_loss]), include_cp=True).item()
@@ -941,6 +949,10 @@ class FinetuneRecipeForVLM(BaseRecipe):
 		val_loss = total_loss / max(total_tokens, 1e-8)
 
 		return MetricsSample(
+			loss=val_loss,
+			num_tokens=total_tokens,
+			num_label_tokens=total_num_label_tokens,
+		)
 			step=self.step_scheduler.step,
 			epoch=self.step_scheduler.epoch,
 			metrics={
