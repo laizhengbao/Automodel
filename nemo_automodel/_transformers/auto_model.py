@@ -370,9 +370,10 @@ class _BaseNeMoAutoModelClass(_BaseAutoModelClass):
                 except Exception as e:
                     logger.error(f"Failed to use custom model implementation with error: {e}")
 
-            # If CPU offloading is requested, force model to load on CPU
-            if kwargs.get("device_map") is None and os.environ.get("NEMO_FSDP_OFFLOAD", "0") == "1":
-                 kwargs["device_map"] = "cpu"
+            # If CPU offloading is requested, force model to load on CPU and bypass accelerate auto-dispatch
+            if os.environ.get("NEMO_FSDP_OFFLOAD", "0") == "1":
+                 kwargs["device_map"] = None
+                 kwargs["low_cpu_mem_usage"] = True
 
             if quantization_config is not None:
                 kwargs["quantization_config"] = quantization_config
@@ -383,6 +384,11 @@ class _BaseNeMoAutoModelClass(_BaseAutoModelClass):
                 attn_implementation=attn_implementation,
                 **kwargs,
             )
+            
+            # Post-load force move to CPU for all params to be safe
+            if os.environ.get("NEMO_FSDP_OFFLOAD", "0") == "1":
+                model.to_empty(device="cpu")
+                model.to("cpu")
             cls.__name__ = name
         except ValueError as e:
             if "does not support" in str(e):
