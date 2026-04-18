@@ -891,9 +891,11 @@ class FinetuneRecipeForVLM(BaseRecipe):
 	@torch.no_grad()
 	def _run_validation_epoch(self, val_dataloader):
 		"""Run one pass over `self.val_dataloader`."""
-		# Trigger FSDP CPU offloading synchronization if enabled
-		if hasattr(self.model, "offload_policy") and self.model.offload_policy is not None:
-			self.model.cpu() 
+		# Force FSDP to return parameters to CPU before starting forward
+		# We check if it is FSDP wrapped, and if so, perform a CPU sync
+		if hasattr(self.model, "_fsdp_managed"):
+			# This is a common way to trigger parameter offloading in FSDP2
+			self.model.to("cpu")
 
 		with ScopedRNG(seed=1, ranked=True):
 			self.model.eval()
