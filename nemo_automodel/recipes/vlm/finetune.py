@@ -952,12 +952,13 @@ class FinetuneRecipeForVLM(BaseRecipe):
 			loss=val_loss,
 			num_tokens=total_tokens,
 			num_label_tokens=total_num_label_tokens,
-		)
 			step=self.step_scheduler.step,
 			epoch=self.step_scheduler.epoch,
 			metrics={
 				"val_loss": val_loss,
 				"lr": self.optimizer.param_groups[0]["lr"],
+			},
+		)
 				"num_label_tokens": total_num_label_tokens,
 				"mem": torch.cuda.max_memory_allocated() / 1024**3,
 			},
