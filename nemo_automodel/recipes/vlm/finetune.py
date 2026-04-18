@@ -957,8 +957,6 @@ class FinetuneRecipeForVLM(BaseRecipe):
 			metrics={
 				"val_loss": val_loss,
 				"lr": self.optimizer.param_groups[0]["lr"],
-			},
-		)
 				"num_label_tokens": total_num_label_tokens,
 				"mem": torch.cuda.max_memory_allocated() / 1024**3,
 			},
