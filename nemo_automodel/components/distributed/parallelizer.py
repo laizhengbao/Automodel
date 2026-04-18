@@ -155,20 +155,12 @@ class DefaultParallelizationStrategy(ParallelizationStrategy):
                 parallelize_module(model, tp_mesh, model_parallel_plan)
 
         # Ensure model is on CPU if CPU offloading is requested.
-        # This must happen AFTER Tensor Parallelism because TP moves weights to GPU.
+        # Use to_empty(device='cpu') as recommended by the FSDP error message.
         if offload_policy is not None:
-            logger.info("Moving model parameters to CPU for CPU offloading after TP.")
-            
-            # For parameters that are already on GPU, move them to CPU
-            for param in model.parameters():
-                if param.device.type == "cuda":
-                    param.data = param.data.to("cpu")
-            
-            # For meta tensors (that have no data), use to_empty to initialize on CPU
-            # Note: module.to_empty() is the correct way to handle meta device tensors
+            logger.info("Materializing model parameters on CPU using to_empty for FSDP offloading.")
+            # This is the exact mechanism suggested by the RuntimeError
             model.to_empty(device="cpu")
-            
-            # Move the entire module to cpu
+            # Ensure model parameters are loaded/initialized on CPU
             model.to("cpu")
 
         # Apply activation checkpointing to transformer layers if requested
