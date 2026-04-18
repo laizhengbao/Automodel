@@ -303,7 +303,11 @@ class FSDP2Manager:
 
         if self.offload_policy is not None:
             logger.info("Moving model to CPU before FSDP2 parallelization for offloading.")
-            model.to("cpu")
+            # If any parameter is on meta device, use to_empty
+            if any(p.is_meta for p in model.parameters()):
+                model.to_empty(device="cpu")
+            else:
+                model.to("cpu")
 
         fsdp2_strategy_parallelize(
             model,
