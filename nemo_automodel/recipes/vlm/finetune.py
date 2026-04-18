@@ -871,6 +871,10 @@ class FinetuneRecipeForVLM(BaseRecipe):
 	@torch.no_grad()
 	def _run_validation_epoch(self, val_dataloader):
 		"""Run one pass over `self.val_dataloader`."""
+		# If CPU offloading is enabled, ensure parameters are on CPU before FSDP lazy_init
+		if hasattr(self.model, "offload_policy") and self.model.offload_policy is not None:
+			self.model.to("cpu")
+
 		with ScopedRNG(seed=1, ranked=True):
 			self.model.eval()
 
