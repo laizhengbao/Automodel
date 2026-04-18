@@ -1,4 +1,4 @@
-
+import os
 from unittest.mock import MagicMock
 
 import torch
@@ -96,39 +96,48 @@ def custom_collate_fn(examples: list, processor, start_of_response_token=None) -
 
 
 def gemma3_collate_fn(examples: list, processor, start_of_response_token="<start_of_turn>model\n") -> dict[str, torch.Tensor]:
+	from PIL import Image
+	from io import BytesIO
 	skipped_tokens = extract_skipped_token_ids(processor)
 
-	txts = []
-	all_images = []
-
+	clean_conversations = []
 	for example in examples:
 		conv = example["conversation"]
-		txt = processor.apply_chat_template(conv, tokenize=False, add_generation_prompt=False)
-		txts.append(txt)
-
-		example_images = []
-		for turn in conv:
-			cnt = turn.get("content", [])
-			if isinstance(cnt, list):
-				for item in cnt:
+		new_conv = []
+		for msg in conv:
+			new_msg = {"role": msg["role"], "content": []}
+			contents = msg["content"]
+			if isinstance(contents, str):
+				new_msg["content"] = contents
+			else:
+				for item in contents:
 					if isinstance(item, dict) and item.get("type") == "image":
-						p = item.get("image") or item.get("url")
-						if p:
+						img_data = item.get("image") or item.get("url")
+						if isinstance(img_data, dict):
+							if img_data.get("bytes"):
+								img_data = Image.open(BytesIO(img_data["bytes"])).convert("RGB")
+							elif img_data.get("path"):
+								img_data = img_data["path"]
+						
+						if isinstance(img_data, str) and os.path.exists(img_data):
 							try:
-								if isinstance(p, str):
-									img = Image.open(p).convert("RGB")
-								else:
-									img = p
-								example_images.append(img)
-							except Exception as e:
-								print(f"無法讀取圖像 '{p}': {e}")
-		all_images.append(example_images if example_images else None)
+								img_data = Image.open(img_data).convert("RGB")
+							except:
+								pass
 
-	batch = processor(
-		text=txts,
-		images=all_images if any(all_images) else None,
+						new_msg["content"].append({"type": "image", "image": img_data})
+					else:
+						new_msg["content"].append(item)
+			new_conv.append(new_msg)
+		clean_conversations.append(new_conv)
+
+	batch = processor.apply_chat_template(
+		clean_conversations,
+		tokenize=True,
 		padding=True,
+		truncation=True,
 		return_tensors="pt",
+		return_dict=True,
 	)
 
 	if "pixel_values" in batch:
