@@ -301,6 +301,10 @@ class FSDP2Manager:
         else:
             tp_shard_plan = None
 
+        if self.offload_policy is not None:
+            logger.info("Moving model to CPU before FSDP2 parallelization for offloading.")
+            model.to("cpu")
+
         fsdp2_strategy_parallelize(
             model,
             device_mesh=self.device_mesh,

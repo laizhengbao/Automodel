@@ -891,19 +891,14 @@ class FinetuneRecipeForVLM(BaseRecipe):
 	@torch.no_grad()
 	def _run_validation_epoch(self, val_dataloader):
 		"""Run one pass over `self.val_dataloader`."""
-		# Force FSDP to return parameters to CPU before starting forward
-		# We check if it is FSDP wrapped, and if so, perform a CPU sync
-		if hasattr(self.model, "_fsdp_managed"):
-			# This is a common way to trigger parameter offloading in FSDP2
-			self.model.to("cpu")
+		self.model.eval()
 
 		with ScopedRNG(seed=1, ranked=True):
-			self.model.eval()
-
 			total_loss = 0.0
 			total_tokens = 0
 			total_num_label_tokens = 0
 			for batch in val_dataloader:
+
 				batch = {k: v.to(self.dist_env.device, non_blocking=True) for k, v in batch.items()}
 				labels = batch.pop("labels")
 				num_label_tokens = (labels != -100).sum().item()
